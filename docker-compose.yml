@@ -1,0 +1,187 @@
+version: "3.9"
+
+networks:
+  default:
+    name: network-chaos
+
+services:
+  # ZooKeeper Node 01
+  zookeeper-01:
+    image: confluentinc/cp-zookeeper:7.5.3
+    hostname: zookeeper-01
+    container_name: zookeeper-01
+    networks:
+       default:
+          aliases:
+            - zookeeper-01.local
+    ports:
+      - '2181:2181'  # Expose client port to the host
+    environment:
+      ZOOKEEPER_SERVER_ID: 1  # Unique ID for this node
+      ZOOKEEPER_CLIENT_PORT: 2181  # Client port for clients to connect
+      ZOOKEEPER_PEER_PORT: 22881  # Peer port for communication between nodes
+      ZOOKEEPER_TICK_TIME: 2000  # Time unit for maintaining leader election
+      ZOOKEEPER_AUTOPURGE_PURGEINTERVAL: 24
+      ZOOKEEPER_AUTOPURGE_SNAPRETAINCOUNT: 3
+      ZOOKEEPER_SERVERS: "zookeeper-01:22881:23881"  # List of all servers in the ensemble
+    extra_hosts:
+      - "localhost:127.0.0.1"  # Add localhost mapping for container
+    volumes:
+      - ./data/zoo-01:/var/lib/zookeeper
+    healthcheck:
+      test: echo srvr | nc zookeeper-01 2181 || exit 1  # Health check command
+      start_period: 10s
+      retries: 20
+      interval: 10s
+  # Kafka Broker 01
+  broker-01:
+    image: confluentinc/cp-kafka:7.5.3
+    hostname: broker-01
+    container_name: broker-01
+    ports:
+      - '29092:29092'
+      - '9092:9092'
+      - '9101:9101'
+    depends_on:
+      zookeeper-01:
+        condition: service_healthy
+    environment:
+      # Kafka broker configuration
+      KAFKA_BROKER_ID: 1  # Unique ID for this broker
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-01:2181  # ZooKeeper connection string
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT  # Listener security protocols
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker-01:29092,PLAINTEXT_HOST://localhost:9092  # Advertised listeners for clients
+      KAFKA_LISTENERS: 'PLAINTEXT://broker-01:29092,PLAINTEXT_HOST://0.0.0.0:9092'  # Listeners for Kafka broker
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1  # Replication factor for __consumer_offsets topic
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1  # Minimum ISR for transaction state log topic
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1  # Replication factor for transaction state log topic
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0  # Initial delay for group rebalancing
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'  # Automatic topic creation enabled/disabled
+      KAFKA_JMX_PORT: 9101  # JMX monitoring port
+      KAFKA_JMX_OPTS: -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Djava.rmi.server.hostname=broker-01 -Dcom.sun.management.jmxremote.rmi.port=9101  # JMX options for monitoring
+    volumes:
+      - ./data/broker-01:/var/lib/kafka
+    healthcheck:
+      test: nc -z localhost 9092 || exit -1
+      start_period: 15s
+      interval: 5s
+      timeout: 10s
+      retries: 10 
+  connect:
+    image: confluentinc/cp-kafka-connect:7.5.3
+    hostname: kafka-connect
+    container_name: kafka-connect
+    restart: always
+    depends_on:
+      broker-01:
+        condition: service_healthy    
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_BOOTSTRAP_SERVERS: 'broker-01:29092'
+      CONNECT_GROUP_ID: connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: connect_configs
+      CONNECT_STATUS_STORAGE_TOPIC: connect_statuses
+      CONNECT_OFFSET_STORAGE_TOPIC: connect_offsets
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_ZOOKEEPER_CONNECT: 'zookeeper-01:2181'
+      CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_PLUGIN_PATH: "/usr/share/kafka/plugins/"
+    volumes:
+      - ./connect-plugins:/usr/share/kafka/plugins/
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'curl',
+          '--silent',
+          '--fail',
+          '-X',
+          'GET',
+          'http://localhost:8083/connectors',
+        ]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.3
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      broker-01:
+        condition: service_healthy    
+    ports:
+      - '8081:8081'
+    environment:      
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry # Host name for the Schema Registry service.      
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: broker-01:29092 # Comma-separated list of Kafka bootstrap servers for the Schema Registry to connect to.      
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081 # Listeners for the Schema Registry to bind to. Accepts incoming HTTP connections.
+      SCHEMA_REGISTRY_GROUP_ID: schema-registry-group # Kafka consumer group ID used by the Schema Registry to track schema compatibility.
+      SCHEMA_REGISTRY_ACCESS_CONTROL_ALLOW_METHODS: GET,POST,PUT,DELETE # Allowed HTTP methods for Schema Registry requests. Comma-separated list.
+    healthcheck:
+      start_period: 10s
+      interval: 10s
+      retries: 20
+      test: curl --user superUser:superUser --fail --silent --insecure http://localhost:8081/subjects --output /dev/null || exit 1    
+  ksqldb-server:
+    image: confluentinc/cp-ksqldb-server:7.5.3
+    hostname: ksqldb-server
+    container_name: ksqldb-server
+    depends_on:
+      - broker-01
+      - schema-registry
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./connect-plugins/:/usr/share/kafka/plugins/
+    environment:        
+      KSQL_LISTENERS: http://0.0.0.0:8088 # Listeners for KSQLDB to bind to, accepting incoming HTTP connections.
+      KSQL_BOOTSTRAP_SERVERS: broker-01:29092 # Kafka bootstrap servers that KSQLDB should connect to.
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true" # Automatically create processing streams for KSQLDB's logging.
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true" # Automatically create processing topic for KSQLDB's logging.
+      KSQL_CONNECT_PLUGIN_PATH: "/usr/share/kafka/plugins/" # Path to additional Kafka Connect plugins.
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+  ksqldb-cli:
+    image: confluentinc/cp-ksqldb-cli:7.5.3
+    container_name: ksqldb-cli
+    depends_on:
+      - broker-01
+      - ksqldb-server
+    entrypoint: /bin/sh
+    tty: true
+  kafka-rest:
+    image: confluentinc/cp-kafka-rest:7.5.3
+    hostname: kafka-rest
+    container_name: kafka-rest
+    ports:
+    - "8082:8082"
+    depends_on:
+      - broker-01
+    environment:
+      KAFKA_REST_HOST_NAME: kafka-rest
+      KAFKA_REST_BOOTSTRAP_SERVERS: broker-01:29092
+      KAFKA_REST_LISTENERS: 'http://0.0.0.0:8082'
+  kafka-ui:
+    container_name: kafka-ui
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - 8080:8080
+    depends_on:
+      - broker-01
+      - schema-registry
+      - connect
+    environment:
+      KAFKA_CLUSTERS_0_NAME: Storm
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker-01:29092
+      KAFKA_CLUSTERS_0_METRICS_PORT: 9101
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: first
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      DYNAMIC_CONFIG_ENABLED: 'true'
