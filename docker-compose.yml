@@ -7,7 +7,7 @@ networks:
 services:
   # ZooKeeper Node 01
   zookeeper-01:
-    image: confluentinc/cp-zookeeper:7.5.3
+    image: confluentinc/cp-zookeeper:${VERSION_TAG}
     hostname: zookeeper-01
     container_name: zookeeper-01
     networks:
@@ -35,7 +35,7 @@ services:
       interval: 10s
   # Kafka Broker 01
   broker-01:
-    image: confluentinc/cp-kafka:7.5.3
+    image: confluentinc/cp-kafka:${VERSION_TAG}
     hostname: broker-01
     container_name: broker-01
     ports:
@@ -68,7 +68,7 @@ services:
       timeout: 10s
       retries: 10 
   connect:
-    image: confluentinc/cp-kafka-connect:7.5.3
+    image: confluentinc/cp-kafka-connect:${VERSION_TAG}
     hostname: kafka-connect
     container_name: kafka-connect
     restart: always
@@ -111,7 +111,7 @@ services:
       timeout: 5s
       retries: 5
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.5.3
+    image: confluentinc/cp-schema-registry:${VERSION_TAG}
     hostname: schema-registry
     container_name: schema-registry
     depends_on:
@@ -131,7 +131,7 @@ services:
       retries: 20
       test: curl --user superUser:superUser --fail --silent --insecure http://localhost:8081/subjects --output /dev/null || exit 1    
   ksqldb-server:
-    image: confluentinc/cp-ksqldb-server:7.5.3
+    image: confluentinc/cp-ksqldb-server:${VERSION_TAG}
     hostname: ksqldb-server
     container_name: ksqldb-server
     depends_on:
@@ -149,7 +149,7 @@ services:
       KSQL_CONNECT_PLUGIN_PATH: "/usr/share/kafka/plugins/" # Path to additional Kafka Connect plugins.
       KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
   ksqldb-cli:
-    image: confluentinc/cp-ksqldb-cli:7.5.3
+    image: confluentinc/cp-ksqldb-cli:${VERSION_TAG}
     container_name: ksqldb-cli
     depends_on:
       - broker-01
@@ -157,7 +157,7 @@ services:
     entrypoint: /bin/sh
     tty: true
   kafka-rest:
-    image: confluentinc/cp-kafka-rest:7.5.3
+    image: confluentinc/cp-kafka-rest:${VERSION_TAG}
     hostname: kafka-rest
     container_name: kafka-rest
     ports:
@@ -178,10 +178,11 @@ services:
       - schema-registry
       - connect
     environment:
-      KAFKA_CLUSTERS_0_NAME: Storm
+      KAFKA_CLUSTERS_0_NAME: storm
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker-01:29092
       KAFKA_CLUSTERS_0_METRICS_PORT: 9101
       KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
-      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: first
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: alpha
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      KAFKA_CLUSTERS_0_KSQLDBSERVER: http://ksqldb-server:8088
       DYNAMIC_CONFIG_ENABLED: 'true'

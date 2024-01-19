@@ -1,7 +1,6 @@
-# datastack-kafka
+# Kafka Cluster Setup with Docker Compose
 
-### GitHub Repository Description: Kafka Cluster Setup with Docker Compose
-
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/QuantumFuturist/datastack-kafka/blob/main/LICENSE)
 ---
 
 #### Introduction
@@ -14,7 +13,7 @@ This repository contains a comprehensive Docker Compose setup for deploying a Ka
 4. **Schema Registry**: Manages Avro schemas for Kafka messages, ensuring compatibility.
 5. **KSQLDB Server and CLI**: Stream processing engine to process Kafka data in real-time.
 6. **Kafka REST Proxy**: Provides a RESTful interface to the Kafka cluster.
-7. **Kafka UI**: Web interface for managing and visualizing Kafka clusters.
+7. **Kafka UI**: This project uses [Kafka-UI by provectus](https://github.com/provectus/kafka-ui) for Kafka management and monitoring.
 
 #### Features:
 - **Ease of Deployment**: One-command deployment of a full Kafka stack.
